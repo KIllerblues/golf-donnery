@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#14532d">
+<title>Golf Donnery</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="lib/leaflet.css">
+<style>
+:root{--bg:#0f1a14;--card:#16241c;--line:#2a3d32;--txt:#eef5ef;--mut:#9db3a4;--acc:#4ade80;--sand:#e8c872;--water:#4aa8ff;--red:#ff5d5d}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Roboto,sans-serif;overflow:hidden;touch-action:manipulation}
+button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-height:44px}
+button:active{background:var(--line)}
+button.on{background:var(--acc);color:#06240f;border-color:var(--acc);font-weight:700}
+#map{position:fixed;inset:0;background:#0b130e}
+#top{position:fixed;left:0;right:0;top:0;z-index:1000;display:flex;gap:6px;align-items:center;padding:calc(8px + env(safe-area-inset-top)) 8px 8px;background:linear-gradient(#0f1a14ee,#0f1a14aa)}
+#top button{min-width:44px;padding:8px 10px}
+#holeLbl{flex:1;text-align:center;line-height:1.15}
+#holeLbl b{display:block;font-size:20px}
+#holeLbl span{color:var(--mut);font-size:13px}
+#panel{position:fixed;left:0;right:0;bottom:0;z-index:1000;background:#0f1a14f2;border-top:1px solid var(--line);padding:10px 10px calc(10px + env(safe-area-inset-bottom));border-radius:18px 18px 0 0}
+#dists{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:8px;text-align:center}
+.d{background:var(--card);border-radius:12px;padding:6px 4px}
+.d small{display:block;color:var(--mut);font-size:12px}
+.d b{font-size:30px;font-variant-numeric:tabular-nums}
+.d.main b{font-size:44px;color:var(--acc)}
+.d b i{font-style:normal;font-size:14px;color:var(--mut);margin-left:2px}
+#hz{display:flex;gap:6px;overflow-x:auto;padding:8px 0 2px;min-height:20px}
+.chip{white-space:nowrap;border-radius:999px;padding:3px 10px;font-size:14px;border:1px solid var(--line);background:var(--card)}
+.chip.bunker{border-color:var(--sand);color:var(--sand)}
+.chip.water{border-color:var(--water);color:var(--water)}
+#gps{font-size:12px;color:var(--mut);padding:2px 2px 6px}
+#scoreRow{display:flex;gap:8px;align-items:center}
+#scoreRow .sc{flex:1;text-align:center}
+#scoreRow small{display:block;color:var(--mut);font-size:12px}
+#scoreRow b{font-size:26px}
+#scoreRow button.sq{width:52px;font-size:24px}
+#tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+#tools button{padding:8px 4px;font-size:14px}
+#parRow{display:flex;gap:8px;align-items:center;margin-top:8px}
+#parRow .sp{flex:1}
+#editHint{margin:8px 0 0;color:var(--mut);font-size:13px}
+.pin{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 13px system-ui;color:#fff;border:2px solid #fff;box-shadow:0 1px 4px #000a}
+.pin.tee{background:#555}
+.pin.front{background:#1e9d4c}
+.pin.center{background:#d62f2f;width:34px;height:34px;margin:-3px}
+.pin.back{background:#1665c1}
+.pin.bunker{background:var(--sand);color:#4a3a05}
+.pin.water{background:var(--water);color:#02305a}
+.me{width:18px;height:18px;border-radius:50%;background:#2d8cff;border:3px solid #fff;box-shadow:0 0 0 2px #2d8cff66}
+.tip{background:#0f1a14;color:#fff;border:1px solid var(--acc);font-weight:600}
+.modal{position:fixed;inset:0;z-index:2000;background:#000a;display:flex;align-items:flex-end;justify-content:center}
+.modal[hidden]{display:none}
+.sheet{background:var(--bg);width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:18px 18px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));border:1px solid var(--line)}
+.sheet h2{margin:0 0 10px;font-size:18px}
+.sheet .row{display:flex;flex-direction:column;gap:8px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:6px 4px;text-align:center;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:500;font-size:13px}
+tr.cur td{background:#16241c}
+tfoot td{font-weight:700;border-top:2px solid var(--acc)}
+.leaflet-container{font-family:inherit}
+.leaflet-control-attribution{font-size:9px;opacity:.8}
+.leaflet-top{top:64px}
+#prog{height:8px;background:var(--card);border-radius:4px;overflow:hidden;margin-top:6px}
+#prog i{display:block;height:100%;width:0;background:var(--acc)}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="top">
+  <button id="btnMenu" aria-label="Menu">☰</button>
+  <button id="prev" aria-label="Trou précédent">◀</button>
+  <div id="holeLbl"><b id="holeNum">Trou 1</b><span id="holePar">Par 4</span></div>
+  <button id="next" aria-label="Trou suivant">▶</button>
+  <button id="btnMode" aria-label="Mode">✎</button>
+</div>
+
+<div id="panel">
+  <div id="playPanel">
+    <div id="dists">
+      <div class="d"><small>Avant</small><b id="dF">–</b></div>
+      <div class="d main"><small>Centre</small><b id="dC">–</b></div>
+      <div class="d"><small>Arrière</small><b id="dB">–</b></div>
+    </div>
+    <div id="hz"></div>
+    <div id="gps">Position GPS en attente…</div>
+    <div id="scoreRow">
+      <button class="sq" id="sMinus">−</button>
+      <div class="sc"><small>Coups</small><b id="sVal">–</b></div>
+      <button class="sq" id="sPlus">+</button>
+      <button id="btnCard">Carte</button>
+      <button id="btnFit" aria-label="Recadrer">⌖</button>
+    </div>
+  </div>
+  <div id="editPanel" hidden>
+    <div id="tools"></div>
+    <div id="parRow">
+      <span>Par</span><button id="parM">−</button><b id="parV">4</b><button id="parP">+</button>
+      <span class="sp"></span>
+      <button id="clearHole">Vider le trou</button>
+    </div>
+    <p id="editHint">Choisis un élément puis touche la carte pour le poser. Glisse un repère pour le corriger, touche-le pour le supprimer.</p>
+  </div>
+</div>
+
+<div class="modal" id="mCard" hidden><div class="sheet">
+  <h2>Carte de score</h2>
+  <table id="cardTbl"></table>
+  <div style="margin-top:12px"><button id="closeCard" style="width:100%">Fermer</button></div>
+</div></div>
+
+<div class="modal" id="mMenu" hidden><div class="sheet">
+  <h2>Menu</h2>
+  <div class="row">
+    <button id="mnCard">Carte de score</button>
+    <button id="mnNew">Nouvelle partie</button>
+    <button id="mnPre">Télécharger la carte pour le hors-ligne</button>
+    <div id="prog" hidden><i></i></div>
+    <small id="progTxt" style="color:var(--mut)"></small>
+    <button id="mnExp">Exporter le parcours (sauvegarde)</button>
+    <button id="mnImp">Importer un parcours</button>
+    <button id="mnWipe" style="border-color:var(--red);color:var(--red)">Effacer tout le parcours</button>
+    <button id="mnClose">Fermer</button>
+  </div>
+  <input type="file" id="file" accept="application/json,.json" hidden>
+</div></div>
+
+<script src="lib/leaflet.js"></script>
+<script>
+'use strict';
+const COURSE=[47.9005,2.1022];
+const BBOX={s:47.8935,w:2.0840,n:47.9075,e:2.1160};
+const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const $=s=>document.querySelector(s);
+const store={
+  get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+const blankHole=()=>({par:4,tee:null,front:null,center:null,back:null,hazards:[]});
+const blankHoles=()=>{const h={};for(let i=1;i<=18;i++)h[i]=blankHole();return h};
+const newRound=()=>({date:new Date().toISOString(),scores:{}});
+
+let holes=store.get('golf.holes',null)||blankHoles();
+let round=store.get('golf.round',null)||newRound();
+let cur=store.get('golf.cur',1);
+let mode='play', tool='center';
+let me=null, acc=null, firstFix=false;
+
+const saveHoles=()=>store.set('golf.holes',holes);
+const saveRound=()=>store.set('golf.round',round);
+
+/* ---------- géométrie ---------- */
+function dist(a,b){
+  const R=6371000,r=Math.PI/180;
+  const dLat=(b[0]-a[0])*r,dLon=(b[1]-a[1])*r;
+  const x=Math.sin(dLat/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+const fmt=d=>d==null?'–':Math.round(d);
+
+/* ---------- carte ---------- */
+const map=L.map('map',{zoomControl:false,maxZoom:21,tap:false}).setView(COURSE,16);
+L.tileLayer(ESRI,{maxNativeZoom:19,maxZoom:21,attribution:'Tiles © Esri — Maxar, Earthstar Geographics'}).addTo(map);
+L.control.zoom({position:'topright'}).addTo(map);
+const layer=L.layerGroup().addTo(map);
+const meLayer=L.layerGroup().addTo(map);
+const tapLayer=L.layerGroup().addTo(map);
+let meMarker=null, meCircle=null, tapTimer=null;
+
+const icon=(cls,txt)=>L.divIcon({className:'',html:`<div class="pin ${cls}">${txt}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
+const LABEL={tee:'T',front:'A',center:'C',back:'R',bunker:'B',water:'E'};
+const NAMES={tee:'Tee',front:'Green avant',center:'Green centre',back:'Green arrière',bunker:'Bunker',water:'Eau'};
+const SINGLE=['tee','front','center','back'];
+
+function hole(){return holes[cur]}
+
+function addMarker(ll,type,onMove,onDelete){
+  const m=L.marker(ll,{icon:icon(type,LABEL[type]),draggable:mode==='edit',interactive:mode==='edit',keyboard:false}).addTo(layer);
+  if(mode==='edit'){
+    m.on('dragend',()=>{const p=m.getLatLng();onMove([p.lat,p.lng]);});
+    m.on('click',()=>{
+      const box=document.createElement('div');
+      box.innerHTML=`<b>${NAMES[type]}</b><br>`;
+      const b=document.createElement('button');
+      b.textContent='Supprimer';b.style.marginTop='6px';
+      b.onclick=()=>{map.closePopup();onDelete();};
+      box.appendChild(b);
+      L.popup({offset:[0,-10]}).setLatLng(m.getLatLng()).setContent(box).openOn(map);
+    });
+  }
+}
+
+function render(){
+  const h=hole();
+  layer.clearLayers();
+  SINGLE.forEach(k=>{
+    if(h[k])addMarker(h[k],k,ll=>{h[k]=ll;saveHoles();updateDists();},()=>{h[k]=null;saveHoles();render();});
+  });
+  h.hazards.forEach((z,i)=>{
+    addMarker(z.ll,z.t,ll=>{z.ll=ll;saveHoles();updateDists();},()=>{h.hazards.splice(i,1);saveHoles();render();});
+  });
+  if(h.tee&&h.center)L.polyline([h.tee,h.center],{color:'#fff',weight:2,opacity:.55,dashArray:'6 8',interactive:false}).addTo(layer);
+  $('#holeNum').textContent='Trou '+cur;
+  $('#holePar').textContent='Par '+h.par;
+  $('#parV').textContent=h.par;
+  renderTools();
+  updateDists();
+  updateScore();
+  store.set('golf.cur',cur);
+}
+
+function renderTools(){
+  const h=hole();
+  $('#tools').innerHTML='';
+  ['tee','front','center','back','bunker','water'].forEach(k=>{
+    const b=document.createElement('button');
+    let suffix='';
+    if(SINGLE.includes(k))suffix=h[k]?' ✓':'';
+    else suffix=' ('+h.hazards.filter(z=>z.t===k).length+')';
+    b.textContent=NAMES[k]+suffix;
+    if(k===tool)b.className='on';
+    b.onclick=()=>{tool=k;renderTools();};
+    $('#tools').appendChild(b);
+  });
+}
+
+function updateDists(){
+  const h=hole();
+  const d=k=>(me&&h[k])?dist(me,h[k]):null;
+  const set=(id,v)=>{$(id).innerHTML=v==null?'–':fmt(v)+'<i>m</i>';};
+  set('#dF',d('front'));set('#dC',d('center'));set('#dB',d('back'));
+  const hz=h.hazards.map(z=>({t:z.t,d:me?dist(me,z.ll):null})).filter(z=>z.d!=null).sort((a,b)=>a.d-b.d);
+  $('#hz').innerHTML=hz.map(z=>`<span class="chip ${z.t}">${z.t==='bunker'?'Bunker':'Eau'} ${fmt(z.d)} m</span>`).join('');
+  const g=$('#gps');
+  if(!('geolocation' in navigator))g.textContent='GPS indisponible sur cet appareil.';
+  else if(!me)g.textContent=gpsMsg||'Position GPS en attente…';
+  else if(!h.center&&!h.front&&!h.back)g.textContent='Green non pointé pour ce trou : passe en mode ✎ pour le placer. (GPS ±'+fmt(acc)+' m)';
+  else g.textContent='GPS ±'+fmt(acc)+' m';
+}
+let gpsMsg='';
+
+/* ---------- GPS ---------- */
+function setMe(lat,lng,a){
+  me=[lat,lng];acc=a;
+  if(!meMarker){
+    meMarker=L.marker(me,{icon:L.divIcon({className:'',html:'<div class="me"></div>',iconSize:[18,18],iconAnchor:[9,9]}),interactive:false,keyboard:false}).addTo(meLayer);
+    meCircle=L.circle(me,{radius:a||10,color:'#2d8cff',weight:1,fillOpacity:.12,interactive:false}).addTo(meLayer);
+  }else{
+    meMarker.setLatLng(me);meCircle.setLatLng(me);meCircle.setRadius(a||10);
+  }
+  updateDists();
+  if(!firstFix){firstFix=true;if(mode==='play')fit();}
+}
+function startGps(){
+  const sim=new URLSearchParams(location.search).get('sim');
+  if(sim){const [a,b]=sim.split(',').map(Number);setMe(a,b,5);return;}
+  if(!('geolocation' in navigator)){updateDists();return;}
+  navigator.geolocation.watchPosition(
+    p=>{gpsMsg='';setMe(p.coords.latitude,p.coords.longitude,p.coords.accuracy);},
+    e=>{gpsMsg=e.code===1?'Localisation refusée : autorise-la dans les réglages du site.':'Signal GPS indisponible…';updateDists();},
+    {enableHighAccuracy:true,maximumAge:1000,timeout:20000}
+  );
+}
+
+/* ---------- cadrage ---------- */
+function fit(){
+  const h=hole();
+  const pts=[h.tee,h.front,h.center,h.back].filter(Boolean);
+  if(mode==='play'&&me)pts.push(me);
+  if(pts.length>=2)map.fitBounds(L.latLngBounds(pts),{paddingTopLeft:[30,90],paddingBottomRight:[30,260],maxZoom:19});
+  else if(pts.length===1)map.setView(pts[0],18);
+  else if(me)map.setView(me,18);
+}
+
+/* ---------- interactions carte ---------- */
+map.on('click',e=>{
+  const ll=[e.latlng.lat,e.latlng.lng];
+  if(mode==='edit'){
+    const h=hole();
+    if(SINGLE.includes(tool))h[tool]=ll;
+    else h.hazards.push({t:tool,ll});
+    saveHoles();render();
+  }else{
+    playTap(e.latlng);
+  }
+});
+function playTap(latlng){
+  tapLayer.clearLayers();clearTimeout(tapTimer);
+  const t=[latlng.lat,latlng.lng],h=hole();
+  const toMe=me?dist(me,t):null;
+  const c=h.center||h.front||h.back;
+  const toGreen=c?dist(t,c):null;
+  if(me)L.polyline([me,t],{color:'#fff',weight:2,interactive:false}).addTo(tapLayer);
+  if(c)L.polyline([t,c],{color:'#4ade80',weight:2,dashArray:'4 6',interactive:false}).addTo(tapLayer);
+  const parts=[];
+  if(toMe!=null)parts.push('Moi → '+fmt(toMe)+' m');
+  if(toGreen!=null)parts.push('→ green '+fmt(toGreen)+' m');
+  if(!parts.length)parts.push('Pas de GPS');
+  L.circleMarker(t,{radius:5,color:'#fff',fillColor:'#4ade80',fillOpacity:1,weight:2}).bindTooltip(parts.join('  ·  '),{permanent:true,direction:'top',className:'tip',offset:[0,-6]}).addTo(tapLayer);
+  tapTimer=setTimeout(()=>tapLayer.clearLayers(),12000);
+}
+
+/* ---------- navigation trous ---------- */
+function goHole(n){
+  cur=((n-1+18)%18)+1;
+  tapLayer.clearLayers();
+  render();fit();
+}
+$('#prev').onclick=()=>goHole(cur-1);
+$('#next').onclick=()=>goHole(cur+1);
+$('#btnFit').onclick=fit;
+
+function setMode(m){
+  mode=m;
+  $('#playPanel').hidden=m!=='play';
+  $('#editPanel').hidden=m!=='edit';
+  $('#btnMode').textContent=m==='play'?'✎':'⛳';
+  $('#btnMode').className=m==='edit'?'on':'';
+  tapLayer.clearLayers();
+  render();
+}
+$('#btnMode').onclick=()=>setMode(mode==='play'?'edit':'play');
+
+/* ---------- édition ---------- */
+$('#parM').onclick=()=>{const h=hole();h.par=Math.max(3,h.par-1);saveHoles();render();};
+$('#parP').onclick=()=>{const h=hole();h.par=Math.min(6,h.par+1);saveHoles();render();};
+$('#clearHole').onclick=()=>{
+  if(confirm('Vider tous les repères du trou '+cur+' ?')){holes[cur]=blankHole();saveHoles();render();}
+};
+
+/* ---------- scores ---------- */
+function updateScore(){
+  const s=round.scores[cur];
+  $('#sVal').textContent=s==null?'–':s;
+}
+function bump(d){
+  const par=hole().par;
+  let s=round.scores[cur];
+  if(s==null)s=par+(d<0?-1:0);
+  else s=Math.max(1,s+d);
+  round.scores[cur]=s;saveRound();updateScore();
+}
+$('#sPlus').onclick=()=>{ if(round.scores[cur]==null){round.scores[cur]=hole().par;saveRound();updateScore();} else bump(1); };
+$('#sMinus').onclick=()=>bump(-1);
+
+function showCard(){
+  let tp=0,ts=0,rows='';
+  for(let i=1;i<=18;i++){
+    const s=round.scores[i],p=holes[i].par;
+    let diff='';
+    if(s!=null){tp+=p;ts+=s;const d=s-p;diff=d===0?'=':(d>0?'+'+d:d);}
+    rows+=`<tr class="${i===cur?'cur':''}"><td>${i}</td><td>${p}</td><td>${s==null?'':s}</td><td>${diff}</td></tr>`;
+  }
+  const d=ts-tp;
+  $('#cardTbl').innerHTML=`<thead><tr><th>Trou</th><th>Par</th><th>Coups</th><th>+/−</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Total</td><td>${tp}</td><td>${ts}</td><td>${tp?(d===0?'=':(d>0?'+'+d:d)):''}</td></tr></tfoot>`;
+  $('#mCard').hidden=false;
+}
+$('#btnCard').onclick=showCard;
+$('#closeCard').onclick=()=>$('#mCard').hidden=true;
+
+/* ---------- menu ---------- */
+$('#btnMenu').onclick=()=>$('#mMenu').hidden=false;
+$('#mnClose').onclick=()=>$('#mMenu').hidden=true;
+$('#mnCard').onclick=()=>{$('#mMenu').hidden=true;showCard();};
+$('#mnNew').onclick=()=>{
+  if(confirm('Effacer les scores et commencer une nouvelle partie ?')){round=newRound();saveRound();goHole(1);$('#mMenu').hidden=true;}
+};
+$('#mnWipe').onclick=()=>{
+  if(confirm('Effacer TOUS les repères (greens, bunkers, eau) des 18 trous ? Pense à exporter avant.')){holes=blankHoles();saveHoles();render();$('#mMenu').hidden=true;}
+};
+$('#mnExp').onclick=()=>{
+  const blob=new Blob([JSON.stringify({version:1,course:'Donnery',holes,round},null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='golf-donnery-parcours.json';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+};
+$('#mnImp').onclick=()=>$('#file').click();
+$('#file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const d=JSON.parse(await f.text());
+    if(!d.holes||!d.holes[1])throw new Error('format');
+    for(let i=1;i<=18;i++){d.holes[i]=Object.assign(blankHole(),d.holes[i]||{});}
+    holes=d.holes;saveHoles();render();fit();
+    $('#mMenu').hidden=true;
+  }catch(err){alert('Fichier invalide.');}
+  e.target.value='';
+};
+
+/* ---------- hors-ligne : précharger les tuiles ---------- */
+function tileXY(lat,lon,z){
+  const n=2**z;
+  const x=Math.floor((lon+180)/360*n);
+  const y=Math.floor((1-Math.asinh(Math.tan(lat*Math.PI/180))/Math.PI)/2*n);
+  return [x,y];
+}
+$('#mnPre').onclick=async()=>{
+  if(!('caches' in window)){alert('Cache indisponible.');return;}
+  const urls=[];
+  for(let z=15;z<=19;z++){
+    const [x0,y0]=tileXY(BBOX.n,BBOX.w,z),[x1,y1]=tileXY(BBOX.s,BBOX.e,z);
+    for(let x=x0;x<=x1;x++)for(let y=y0;y<=y1;y++)urls.push(ESRI.replace('{z}',z).replace('{y}',y).replace('{x}',x));
+  }
+  if(!confirm('Télécharger environ '+urls.length+' images satellite (≈ '+Math.round(urls.length*0.012)+' Mo) pour jouer sans réseau ? À faire en Wi-Fi.'))return;
+  const cache=await caches.open('tiles-v1');
+  $('#prog').hidden=false;
+  let done=0,fail=0,i=0;
+  async function worker(){
+    while(i<urls.length){
+      const u=urls[i++];
+      try{
+        if(!(await cache.match(u))){
+          const r=await fetch(u,{mode:'no-cors'});
+          await cache.put(u,r);
+        }
+      }catch(e){fail++;}
+      done++;
+      $('#prog i').style.width=(done/urls.length*100)+'%';
+      $('#progTxt').textContent=done+' / '+urls.length+(fail?' ('+fail+' échecs)':'');
+    }
+  }
+  await Promise.all(Array.from({length:6},worker));
+  $('#progTxt').textContent='Terminé : '+(urls.length-fail)+' images en cache'+(fail?' ('+fail+' échecs, relance)':'.');
+};
+
+/* ---------- écran allumé + SW + stockage persistant ---------- */
+let wl=null;
+async function lock(){try{if('wakeLock' in navigator&&(!wl||wl.released))wl=await navigator.wakeLock.request('screen');}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)lock();});
+document.addEventListener('click',lock);
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+/* ---------- démarrage ---------- */
+setMode('play');
+const hasAny=Object.values(holes).some(h=>h.center||h.front||h.back||h.tee);
+if(!hasAny){setMode('edit');}
+fit();
+startGps();
+</script>
+</body>
+</html>
