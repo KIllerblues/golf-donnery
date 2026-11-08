@@ -301,13 +301,29 @@ function startGps(){
 }
 
 /* ---------- cadrage ---------- */
+// ma position compte seulement si je suis sur ou près du golf (sinon la carte partirait ailleurs)
+const onCourse=p=>!!p&&p[0]>BBOX.s-0.01&&p[0]<BBOX.n+0.01&&p[1]>BBOX.w-0.015&&p[1]<BBOX.e+0.015;
+function nearestPointedHole(){
+  for(let d=0;d<18;d++){
+    for(const n of [cur-d,cur+d]){
+      const h=holes[n];
+      if(h){const p=h.center||h.tee||h.front||h.back;if(p)return p;}
+    }
+  }
+  return null;
+}
 function fit(){
   const h=hole();
   const pts=[h.tee,h.front,h.center,h.back].filter(Boolean);
-  if(mode==='play'&&me)pts.push(me);
+  const meOn=onCourse(me);
+  if(mode==='play'&&meOn)pts.push(me);
   if(pts.length>=2)map.fitBounds(L.latLngBounds(pts),{paddingTopLeft:[30,90],paddingBottomRight:[30,260],maxZoom:19});
   else if(pts.length===1)map.setView(pts[0],18);
-  else if(me)map.setView(me,18);
+  else if(mode==='play'&&meOn)map.setView(me,18);
+  else{
+    const ref=nearestPointedHole();   // trou vierge : on reste sur le golf
+    if(ref)map.setView(ref,17);else map.setView(COURSE,16);
+  }
 }
 
 /* ---------- interactions carte ---------- */
@@ -506,8 +522,8 @@ async function syncRemote(manual){
   const stamp=String(d.updated||('v'+(d.version||1)));
   const seen=store.get('golf.remoteStamp',null);
   if(!hasData(holes)){
+    if(mode==='edit')setMode('play');   // d'abord le mode jeu, pour que le cadrage inclue ma position
     applyHoles(d.holes,'chargement du dépôt');store.set('golf.remoteStamp',stamp);
-    if(mode==='edit')setMode('play');
     toast('Parcours chargé depuis le dépôt.');
     return;
   }
