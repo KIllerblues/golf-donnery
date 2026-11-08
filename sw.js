@@ -1,6 +1,6 @@
-const APP='golf-app-v1';
+const APP='golf-app-v2';
 const TILES='tiles-v1';
-const SHELL=['./','index.html','manifest.webmanifest','lib/leaflet.js','lib/leaflet.css','icon-192.png','icon-512.png'];
+const SHELL=['./','index.html','manifest.webmanifest','leaflet.js','leaflet.css','icon-192.png','icon-512.png'];
 
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(APP).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));
