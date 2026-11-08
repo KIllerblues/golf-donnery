@@ -65,6 +65,10 @@ tfoot td{font-weight:700;border-top:2px solid var(--acc)}
 .leaflet-container{font-family:inherit}
 .leaflet-control-attribution{font-size:9px;opacity:.8}
 .leaflet-top{top:64px}
+#toast{position:fixed;left:12px;right:12px;top:calc(70px + env(safe-area-inset-top));z-index:3000;background:var(--acc);color:#06240f;font-weight:600;padding:10px 14px;border-radius:12px;text-align:center}
+#toast[hidden]{display:none}
+.hrow{padding:10px 4px;border-bottom:1px solid var(--line)}
+.hrow small{display:block;color:var(--mut)}
 #prog{height:8px;background:var(--card);border-radius:4px;overflow:hidden;margin-top:6px}
 #prog i{display:block;height:100%;width:0;background:var(--acc)}
 </style>
@@ -118,17 +122,27 @@ tfoot td{font-weight:700;border-top:2px solid var(--acc)}
   <h2>Menu</h2>
   <div class="row">
     <button id="mnCard">Carte de score</button>
-    <button id="mnNew">Nouvelle partie</button>
+    <button id="mnNew">Nouvelle partie (garde le parcours)</button>
+    <button id="mnHist">Historique des parties</button>
     <button id="mnPre">Télécharger la carte pour le hors-ligne</button>
     <div id="prog" hidden><i></i></div>
     <small id="progTxt" style="color:var(--mut)"></small>
-    <button id="mnExp">Exporter le parcours (sauvegarde)</button>
+    <button id="mnRepo">Recharger le parcours du dépôt</button>
+    <button id="mnExp">Exporter le parcours (fichier parcours.json)</button>
     <button id="mnImp">Importer un parcours</button>
+    <button id="mnRestore">Annuler le dernier écrasement</button>
     <button id="mnWipe" style="border-color:var(--red);color:var(--red)">Effacer tout le parcours</button>
     <button id="mnClose">Fermer</button>
   </div>
   <input type="file" id="file" accept="application/json,.json" hidden>
 </div></div>
+
+<div class="modal" id="mHist" hidden><div class="sheet">
+  <h2>Historique des parties</h2>
+  <div id="histList"></div>
+  <div style="margin-top:12px"><button id="closeHist" style="width:100%">Fermer</button></div>
+</div></div>
+<div id="toast" hidden></div>
 
 <script src="leaflet.js"></script>
 <script>
@@ -153,6 +167,25 @@ let me=null, acc=null, firstFix=false;
 
 const saveHoles=()=>store.set('golf.holes',holes);
 const saveRound=()=>store.set('golf.round',round);
+
+/* ---------- protection des données ---------- */
+const hasData=h=>!!h&&Object.values(h).some(x=>x&&(x.tee||x.front||x.center||x.back||(x.hazards&&x.hazards.length)));
+function normHoles(src){const o={};for(let i=1;i<=18;i++)o[i]=Object.assign(blankHole(),(src&&src[i])||{});return o;}
+// copie de secours avant tout écrasement des repères (import, dépôt, effacement)
+function backupHoles(why){if(hasData(holes))store.set('golf.holes.backup',{at:new Date().toISOString(),why,holes});}
+function applyHoles(src,why){backupHoles(why);holes=normHoles(src);saveHoles();render();fit();}
+let history=store.get('golf.history',[]);
+function archiveRound(){
+  const ks=Object.keys(round.scores);
+  if(!ks.length)return;
+  let ts=0,tp=0;
+  ks.forEach(k=>{ts+=round.scores[k];tp+=(holes[k]?holes[k].par:4);});
+  history.unshift({date:round.date,n:ks.length,total:ts,par:tp,scores:round.scores});
+  history=history.slice(0,300);
+  store.set('golf.history',history);
+}
+let toastT=null;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,4500);}
 
 /* ---------- géométrie ---------- */
 function dist(a,b){
@@ -330,7 +363,7 @@ $('#btnMode').onclick=()=>setMode(mode==='play'?'edit':'play');
 $('#parM').onclick=()=>{const h=hole();h.par=Math.max(3,h.par-1);saveHoles();render();};
 $('#parP').onclick=()=>{const h=hole();h.par=Math.min(6,h.par+1);saveHoles();render();};
 $('#clearHole').onclick=()=>{
-  if(confirm('Vider tous les repères du trou '+cur+' ?')){holes[cur]=blankHole();saveHoles();render();}
+  if(confirm('Vider tous les repères du trou '+cur+' ?')){backupHoles('vidage du trou '+cur);holes[cur]=blankHole();saveHoles();render();}
 };
 
 /* ---------- scores ---------- */
@@ -368,15 +401,36 @@ $('#btnMenu').onclick=()=>$('#mMenu').hidden=false;
 $('#mnClose').onclick=()=>$('#mMenu').hidden=true;
 $('#mnCard').onclick=()=>{$('#mMenu').hidden=true;showCard();};
 $('#mnNew').onclick=()=>{
-  if(confirm('Effacer les scores et commencer une nouvelle partie ?')){round=newRound();saveRound();goHole(1);$('#mMenu').hidden=true;}
+  if(confirm('Terminer cette partie et en commencer une nouvelle ?\n\nLe score est gardé dans l\'historique. Tes repères (greens, bunkers, eau) ne sont pas touchés.')){
+    archiveRound();round=newRound();saveRound();goHole(1);$('#mMenu').hidden=true;toast('Nouvelle partie. Parcours conservé.');
+  }
 };
 $('#mnWipe').onclick=()=>{
-  if(confirm('Effacer TOUS les repères (greens, bunkers, eau) des 18 trous ? Pense à exporter avant.')){holes=blankHoles();saveHoles();render();$('#mMenu').hidden=true;}
+  if(confirm('Effacer TOUS les repères (greens, bunkers, eau) des 18 trous ?\n\nUne copie de secours est gardée : Menu → Annuler le dernier écrasement.')){backupHoles('effacement complet');holes=blankHoles();saveHoles();render();$('#mMenu').hidden=true;}
 };
+$('#mnRestore').onclick=()=>{
+  const b=store.get('golf.holes.backup',null);
+  if(!b||!hasData(b.holes)){alert('Aucune copie de secours disponible.');return;}
+  const d=new Date(b.at).toLocaleString('fr-FR');
+  if(confirm('Restaurer les repères sauvegardés le '+d+' ('+b.why+') ?\nLes repères actuels seront gardés en secours à leur tour.')){
+    applyHoles(b.holes,'avant restauration');$('#mMenu').hidden=true;toast('Repères restaurés.');
+  }
+};
+$('#mnHist').onclick=()=>{
+  const L=$('#histList');
+  if(!history.length)L.innerHTML='<p style="color:var(--mut)">Aucune partie terminée pour l\'instant. Elle est enregistrée quand tu touches « Nouvelle partie ».</p>';
+  else L.innerHTML=history.map(h=>{
+    const d=h.total-h.par,ds=d===0?'=':(d>0?'+'+d:d);
+    return `<div class="hrow"><b>${new Date(h.date).toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</b><small>${h.n} trou${h.n>1?'s':''} · ${h.total} coups (par ${h.par}) · ${ds}</small></div>`;
+  }).join('');
+  $('#mMenu').hidden=true;$('#mHist').hidden=false;
+};
+$('#closeHist').onclick=()=>$('#mHist').hidden=true;
+$('#mnRepo').onclick=async()=>{await syncRemote(true);$('#mMenu').hidden=true;};
 $('#mnExp').onclick=()=>{
-  const blob=new Blob([JSON.stringify({version:1,course:'Donnery',holes,round},null,1)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({version:1,course:'Donnery',updated:new Date().toISOString(),holes},null,1)],{type:'application/json'});
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='golf-donnery-parcours.json';
+  a.href=URL.createObjectURL(blob);a.download='parcours.json';
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 };
@@ -385,10 +439,10 @@ $('#file').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   try{
     const d=JSON.parse(await f.text());
-    if(!d.holes||!d.holes[1])throw new Error('format');
-    for(let i=1;i<=18;i++){d.holes[i]=Object.assign(blankHole(),d.holes[i]||{});}
-    holes=d.holes;saveHoles();render();fit();
-    $('#mMenu').hidden=true;
+    if(!d.holes||!hasData(d.holes))throw new Error('format');
+    if(hasData(holes)&&!confirm('Remplacer tes repères actuels par ceux du fichier ?\n(Une copie de secours est gardée : Menu → Annuler le dernier écrasement.)')){e.target.value='';return;}
+    applyHoles(d.holes,'import de fichier');
+    $('#mMenu').hidden=true;toast('Parcours importé.');
   }catch(err){alert('Fichier invalide.');}
   e.target.value='';
 };
@@ -437,12 +491,39 @@ document.addEventListener('click',lock);
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 
+/* ---------- parcours partagé (fichier parcours.json du dépôt) ---------- */
+async function fetchRemote(){
+  try{
+    const r=await fetch('parcours.json?'+Date.now(),{cache:'no-store'});
+    if(!r.ok)return null;
+    const d=await r.json();
+    return (d&&d.holes&&hasData(d.holes))?d:null;
+  }catch(e){return null;}
+}
+async function syncRemote(manual){
+  const d=await fetchRemote();
+  if(!d){if(manual)alert('Aucun parcours trouvé dans le dépôt, ou pas de réseau.');return;}
+  const stamp=String(d.updated||('v'+(d.version||1)));
+  const seen=store.get('golf.remoteStamp',null);
+  if(!hasData(holes)){
+    applyHoles(d.holes,'chargement du dépôt');store.set('golf.remoteStamp',stamp);
+    if(mode==='edit')setMode('play');
+    toast('Parcours chargé depuis le dépôt.');
+    return;
+  }
+  if(manual||stamp!==seen){
+    if(confirm('Un parcours est disponible dans le dépôt.\nL\'appliquer à la place de tes repères actuels ?\n\n(Tes repères actuels sont gardés en secours : Menu → Annuler le dernier écrasement.)')){
+      applyHoles(d.holes,'application du dépôt');store.set('golf.remoteStamp',stamp);toast('Parcours du dépôt appliqué.');
+    }else if(!manual){store.set('golf.remoteStamp',stamp);}
+  }
+}
+
 /* ---------- démarrage ---------- */
 setMode('play');
-const hasAny=Object.values(holes).some(h=>h.center||h.front||h.back||h.tee);
-if(!hasAny){setMode('edit');}
+if(!hasData(holes)){setMode('edit');}
 fit();
 startGps();
+syncRemote(false);
 </script>
 </body>
 </html>

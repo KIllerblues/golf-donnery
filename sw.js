@@ -1,4 +1,4 @@
-const APP='golf-app-v2';
+const APP='golf-app-v3';
 const TILES='tiles-v1';
 const SHELL=['./','index.html','manifest.webmanifest','leaflet.js','leaflet.css','icon-192.png','icon-512.png'];
 
@@ -31,6 +31,22 @@ self.addEventListener('fetch',e=>{
           return res;
         }catch(err){
           return new Response('',{status:504});
+        }
+      })
+    );
+    return;
+  }
+
+  // Parcours partagé : réseau d'abord (toujours à jour), cache en secours hors-ligne
+  if(url.origin===location.origin&&url.pathname.endsWith('/parcours.json')){
+    e.respondWith(
+      caches.open(APP).then(async c=>{
+        try{
+          const res=await fetch(req);
+          if(res&&res.ok)c.put(url.pathname,res.clone());
+          return res;
+        }catch(err){
+          return (await c.match(url.pathname))||new Response('{}',{status:404,headers:{'Content-Type':'application/json'}});
         }
       })
     );
